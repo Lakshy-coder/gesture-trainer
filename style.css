@@ -1,0 +1,258 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Base */
+body {
+  font-family: 'Inter', sans-serif;
+  background: #0b0f19;
+  color: #e5e7eb;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+/* Container */
+.container {
+  max-width: 750px;
+  width: 100%;
+}
+
+/* Title */
+h1 {
+  font-size: 1.9rem;
+  font-weight: 600;
+  color: #f9fafb;
+}
+
+.subtitle {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Steps */
+.steps {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1.4rem;
+}
+
+.step {
+  flex: 1;
+  background: transparent;
+  border: 1px solid #1f2937;
+  padding: 1rem;
+  border-radius: 10px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.step:hover {
+  border-color: #6366f1;
+}
+
+.step-num {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.step-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 0.2rem;
+}
+
+/* Video */
+.video-wrap {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 1.3rem;
+  border: 1px solid #1f2937;
+}
+
+video {
+  display: none;
+}
+
+canvas {
+  width: 100%;
+  display: block;
+}
+
+/* Recording badge */
+.recording-badge {
+  display: none;
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: #ef4444;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.recording-badge.active {
+  display: block;
+}
+
+/* Sections */
+.section {
+  background: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 1.2rem;
+  margin-bottom: 1.2rem;
+}
+
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-bottom: 0.8rem;
+}
+
+/* Record buttons */
+.rec-row {
+  display: flex;
+  gap: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.rec-btn {
+  flex: 1;
+  padding: 0.8rem;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rec-btn:hover {
+  border-color: #6366f1;
+  background: #111827;
+}
+
+.rec-btn:active,
+.rec-btn.held {
+  transform: scale(0.96);
+}
+
+/* Key badge */
+.rec-btn .key {
+  background: #1f2937;
+  color: #cbd5f5;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+}
+
+/* Sample count */
+.sample-counts {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.sample-counts span {
+  color: #e5e7eb;
+  font-weight: 600;
+}
+
+/* Confidence */
+.conf-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.conf-bar {
+  flex: 1;
+  height: 8px;
+  background: #1f2937;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.conf-fill {
+  height: 100%;
+  width: 0%;
+  background: #6366f1;
+  transition: width 0.2s ease;
+}
+
+.conf-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6366f1;
+}
+
+/* Train button */
+.train-btn {
+  width: 100%;
+  padding: 0.85rem;
+  border: none;
+  background: #6366f1;
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  margin-bottom: 0.75rem;
+}
+
+.train-btn:hover {
+  background: #4f46e5;
+}
+
+.train-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Status */
+.status {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+/* Utility buttons */
+.util-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.util-btn {
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.util-btn:hover {
+  border-color: #6366f1;
+  background: #111827;
+}
+
+.util-btn.danger:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
