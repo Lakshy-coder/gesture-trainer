@@ -234,7 +234,7 @@ document.getElementById("btn-train").addEventListener("click", async () => {
     shuffle: true,
     callbacks: {
       onEpochEnd: (ep, logs) => {
-        statusEl.textContent = `Epoch ${ep + 1}/50 — acc: ${(logs.acc * 100).toFixed(1)}%`;
+        statusEl.textContent = `Epoch ${ep + 1}/50 — acc: ${((logs.accuracy || 0) * 100).toFixed(1)}%`;
       }
     }
   });
