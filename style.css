@@ -170,6 +170,23 @@ canvas {
   font-weight: 600;
 }
 
+.session-count {
+  color: #64748b;
+  font-weight: 400;
+}
+
+.session-count span {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.hint {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 0.5rem;
+  line-height: 1.4;
+}
+
 /* Confidence */
 .conf-bar-wrap {
   display: flex;
@@ -255,4 +272,79 @@ canvas {
 .util-btn.danger:hover {
   border-color: #ef4444;
   color: #ef4444;
+}
+
+/* Validation metrics */
+.hidden {
+  display: none;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.metric {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 0.7rem 0.4rem;
+  text-align: center;
+}
+
+.metric-val {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #22c55e;
+}
+
+.metric-label {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.25rem;
+}
+
+.confusion-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.confusion-table th,
+.confusion-table td {
+  border: 1px solid #1f2937;
+  padding: 0.45rem;
+  text-align: center;
+  color: #e5e7eb;
+  font-weight: 500;
+}
+
+.confusion-table thead th {
+  color: #94a3b8;
+  font-weight: 500;
+  background: #0f172a;
+}
+
+.confusion-table tbody th {
+  color: #94a3b8;
+  background: #0f172a;
+  text-align: left;
+  padding-left: 0.6rem;
+}
+
+.metrics-note {
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }

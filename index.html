@@ -32,8 +32,11 @@
       <button type="button" id="btn-rec-other" class="rec-btn">Record Other Poses <span class="key">2</span></button>
     </div>
     <div class="sample-counts">
-      Clone sign: <span id="count-clone">0</span> &nbsp;·&nbsp; Other: <span id="count-other">0</span>
+      Clone sign: <span id="count-clone">0</span> frames <span class="session-count">(<span id="sessions-clone">0</span> sessions)</span>
+      &nbsp;·&nbsp;
+      Other: <span id="count-other">0</span> frames <span class="session-count">(<span id="sessions-other">0</span> sessions)</span>
     </div>
+    <p class="hint">Each Record click/tap is one "session." Record 3+ separate sessions per gesture (moving slightly between reps) to unlock held-out validation below.</p>
   </div>
 
   <!-- Train -->
@@ -44,7 +47,26 @@
       <span id="conf-label" class="conf-label">0%</span>
     </div>
     <button type="button" id="btn-train" class="train-btn">Train Model</button>
-    <p id="train-status" class="status">Collect at least 50 samples.</p>
+    <p id="train-status" class="status">Collect at least 5 samples per class to train (3+ sessions each to also validate).</p>
+  </div>
+
+  <!-- Validation -->
+  <div class="section hidden" id="metrics-section">
+    <div class="section-title">Held-out Validation (session-level split)</div>
+    <div class="metrics-grid">
+      <div class="metric"><div class="metric-val" id="m-acc">–</div><div class="metric-label">Accuracy</div></div>
+      <div class="metric"><div class="metric-val" id="m-prec">–</div><div class="metric-label">Precision</div></div>
+      <div class="metric"><div class="metric-val" id="m-rec">–</div><div class="metric-label">Recall</div></div>
+      <div class="metric"><div class="metric-val" id="m-f1">–</div><div class="metric-label">F1 Score</div></div>
+    </div>
+    <table class="confusion-table">
+      <thead><tr><th></th><th>Predicted: Clone</th><th>Predicted: Other</th></tr></thead>
+      <tbody>
+        <tr><th>Actual: Clone</th><td id="cm-tp">–</td><td id="cm-fn">–</td></tr>
+        <tr><th>Actual: Other</th><td id="cm-fp">–</td><td id="cm-tn">–</td></tr>
+      </tbody>
+    </table>
+    <p class="metrics-note" id="metrics-meta"></p>
   </div>
 
   <!-- Utilities -->
