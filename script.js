@@ -72,7 +72,7 @@ function drawHand(lm) {
   });
 }
 
-// landmark processing
+// landmark processing — wrist-relative, scale-normalized (21 landmarks * 3 coords = 63 per hand)
 function normalize(lm) {
   const w = lm[0], mcp = lm[9];
   const scale = Math.sqrt(
@@ -88,25 +88,39 @@ function normalize(lm) {
 }
 
 function extract(right, left) {
-  return [...normalize(right), ...normalize(left)];
+  return [...normalize(right), ...normalize(left)]; // 126-dim feature vector
 }
+// Config
+const COUNTDOWN = 3;              // countdown before recording starts (s)
+const RECORD_TIME = 4;            // recording time per session (s)
+const VAL_RATIO = 0.25;           // fraction of SESSIONS (not frames) held out per class
+const MIN_SESSIONS_PER_CLASS = 3; // minimum sessions/class before validation is computed
 
-// data collection
+// Data collection state
+
+// Each sample is { x: [126 floats], session: "<label>_<timestamp>" }.
+// The session id ties every frame captured in one countdown+record cycle
+// together, so a train/validation split can keep a whole session on one
+// side only (see splitSessionsForClass below).
 let samples = { clone_sign: [], not_sign: [] };
 let recording = null;
-let model = null;
+let currentSessionId = null;
+let model = null; // the "live" model used for on-page testing + export
 
 const statusEl = document.getElementById("train-status");
 
-function captureFrame(right, left) {
-  if (!recording || !right || !left) return;
-  samples[recording].push(extract(right, left));
+function updateCounts() {
   document.getElementById("count-clone").textContent = samples.clone_sign.length;
   document.getElementById("count-other").textContent = samples.not_sign.length;
+  document.getElementById("sessions-clone").textContent = groupBySession(samples.clone_sign).size;
+  document.getElementById("sessions-other").textContent = groupBySession(samples.not_sign).size;
 }
 
-const COUNTDOWN = 3;     // countdown before recording starts
-const RECORD_TIME = 4;   // recording time
+function captureFrame(right, left) {
+  if (!recording || !right || !left) return;
+  samples[recording].push({ x: extract(right, left), session: currentSessionId });
+  updateCounts();
+}
 
 let countdownTimer = null;
 let recordTimer = null;
@@ -137,6 +151,7 @@ function startCountdown(label) {
 
 function startRec(label) {
   recording = label;
+  currentSessionId = `${label}_${Date.now()}`; // one id per countdown+record cycle
 
   const badge = document.getElementById("rec-badge");
   badge.classList.add("active");
@@ -151,13 +166,14 @@ function startRec(label) {
       badge.textContent = `● REC ${remaining}s`;
     } else {
       stopRec();
-      statusEl.textContent = `Done! Captured samples. Record more or train.`;
+      statusEl.textContent = `Done! Captured samples. Record more (3+ sessions/class unlocks validation) or train.`;
     }
   }, 1000);
 }
 
 function stopRec() {
   recording = null;
+  currentSessionId = null;
   clearInterval(recordTimer);
   recordTimer = null;
   document.getElementById("rec-badge").classList.remove("active");
@@ -169,6 +185,7 @@ function cancelRecording() {
   countdownTimer = null;
   recordTimer = null;
   recording = null;
+  currentSessionId = null;
   document.getElementById("rec-badge").classList.remove("active");
 }
 
@@ -184,7 +201,151 @@ document.addEventListener("keydown", e => {
   if (!e.repeat && keyMap[e.key]) startCountdown(keyMap[e.key]);
 });
 
+// ---------------------------------------------------------------------------
+// Shuffling helpers
+// ---------------------------------------------------------------------------
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function shuffleParallel(xs, ys) {
+  const idx = shuffle(xs.map((_, i) => i));
+  return { xs: idx.map(i => xs[i]), ys: idx.map(i => ys[i]) };
+}
+
+// Session-level stratified split
+
+// WHY: a single 4s recording captures dozens of frames of (basically) the
+// same pose, same lighting, same background — they're near-duplicates of
+// each other. If those frames get randomly shuffled into both train and
+// validation, validation "sees" near-copies of what it trained on and
+// reports inflated accuracy that says nothing about real generalization
+// (e.g. to a new session, angle, or lighting). Splitting by whole SESSION
+// instead of by frame keeps every frame from one recording on the same
+// side of the split, so validation is only ever tested against poses the
+// model has never (even approximately) seen during training.
+
+function groupBySession(list) {
+  const map = new Map();
+  list.forEach(s => {
+    const key = s.session || "unknown";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(s.x);
+  });
+  return map;
+}
+
+function splitSessionsForClass(list) {
+  const sessions = groupBySession(list);
+  const ids = shuffle([...sessions.keys()]);
+  const total = ids.length;
+
+  let valCount = Math.max(1, Math.round(total * VAL_RATIO));
+  if (total - valCount < 1) valCount = Math.max(0, total - 1); // always keep >=1 train session
+
+  const valIds = ids.slice(0, valCount);
+  const trainIds = ids.slice(valCount);
+
+  const trainX = trainIds.flatMap(id => sessions.get(id));
+  const valX = valIds.flatMap(id => sessions.get(id));
+
+  return {
+    trainX, valX, trainIds, valIds,
+    numSessions: total,
+    numTrainSessions: trainIds.length,
+    numValSessions: valIds.length
+  };
+}
+
+function buildSplit() {
+  const pos = splitSessionsForClass(samples.clone_sign); // label 1
+  const neg = splitSessionsForClass(samples.not_sign);   // label 0
+
+  return {
+    trainX: [...pos.trainX, ...neg.trainX],
+    trainY: [...pos.trainX.map(() => 1), ...neg.trainX.map(() => 0)],
+    valX: [...pos.valX, ...neg.valX],
+    valY: [...pos.valX.map(() => 1), ...neg.valX.map(() => 0)],
+    pos, neg
+  };
+}
+
+
+// Model
+
+function buildModel() {
+  const m = tf.sequential();
+  // Mess around with the NN model topology to try and get better performance.
+  // Keep in mind bias-variance tradeoffs and over/under fitting
+  m.add(tf.layers.dense({ inputShape: [126], units: 64, activation: "relu" }));
+  m.add(tf.layers.dropout({ rate: 0.3 }));
+  m.add(tf.layers.dense({ units: 32, activation: "relu" }));
+  m.add(tf.layers.dense({ units: 1, activation: "sigmoid" }));
+  m.compile({ optimizer: "adam", loss: "binaryCrossentropy", metrics: ["accuracy"] });
+  return m;
+}
+
+function computeMetrics(m, xs, ys) {
+  const xT = tf.tensor2d(xs);
+  const preds = m.predict(xT).dataSync();
+  xT.dispose();
+
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  preds.forEach((p, i) => {
+    const pred = p >= 0.5 ? 1 : 0;
+    const actual = ys[i];
+    if (pred === 1 && actual === 1) tp++;
+    else if (pred === 1 && actual === 0) fp++;
+    else if (pred === 0 && actual === 0) tn++;
+    else fn++;
+  });
+
+  const n = tp + fp + tn + fn;
+  const accuracy = n ? (tp + tn) / n : 0;
+  const precision = (tp + fp) ? tp / (tp + fp) : 0;
+  const recall = (tp + fn) ? tp / (tp + fn) : 0;
+  const f1 = (precision + recall) ? (2 * precision * recall) / (precision + recall) : 0;
+
+  return { tp, fp, tn, fn, n, accuracy, precision, recall, f1 };
+}
+
+
+// Metrics panel UI
+
+const metricsSection = document.getElementById("metrics-section");
+
+function renderMetrics(metrics, split) {
+  document.getElementById("m-acc").textContent = `${(metrics.accuracy * 100).toFixed(1)}%`;
+  document.getElementById("m-prec").textContent = `${(metrics.precision * 100).toFixed(1)}%`;
+  document.getElementById("m-rec").textContent = `${(metrics.recall * 100).toFixed(1)}%`;
+  document.getElementById("m-f1").textContent = `${(metrics.f1 * 100).toFixed(1)}%`;
+
+  document.getElementById("cm-tp").textContent = metrics.tp;
+  document.getElementById("cm-fn").textContent = metrics.fn;
+  document.getElementById("cm-fp").textContent = metrics.fp;
+  document.getElementById("cm-tn").textContent = metrics.tn;
+
+  document.getElementById("metrics-meta").textContent =
+    `Trained on ${split.pos.numTrainSessions + split.neg.numTrainSessions} sessions ` +
+    `(${split.pos.numTrainSessions} clone / ${split.neg.numTrainSessions} other) — ` +
+    `validated on ${split.pos.numValSessions + split.neg.numValSessions} held-out sessions ` +
+    `(${split.pos.numValSessions} clone / ${split.neg.numValSessions} other), ` +
+    `${metrics.n} validation frames total. No session appears on both sides.`;
+
+  metricsSection.classList.remove("hidden");
+}
+
+function hideMetrics() {
+  metricsSection.classList.add("hidden");
+}
+
 // Training the model
+
 document.getElementById("btn-train").addEventListener("click", async () => {
   const nP = samples.clone_sign.length;
   const nN = samples.not_sign.length;
@@ -194,55 +355,82 @@ document.getElementById("btn-train").addEventListener("click", async () => {
     return;
   }
 
-  const xs = [], ys = [];
-  samples.clone_sign.forEach(s => { xs.push(s); ys.push(1); });
-  samples.not_sign.forEach(s => { xs.push(s); ys.push(0); });
+  const trainBtn = document.getElementById("btn-train");
+  trainBtn.disabled = true;
 
-  // Shuffle
-  for (let i = xs.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [xs[i], xs[j]] = [xs[j], xs[i]];
-    [ys[i], ys[j]] = [ys[j], ys[i]];
+  const sessionsP = groupBySession(samples.clone_sign).size;
+  const sessionsN = groupBySession(samples.not_sign).size;
+  const canValidate = sessionsP >= MIN_SESSIONS_PER_CLASS && sessionsN >= MIN_SESSIONS_PER_CLASS;
+
+  let metrics = null;
+  let split = null;
+
+  if (canValidate) {
+    // --- Phase 1: held-out validation ---
+    split = buildSplit();
+    const { xs: trainXs, ys: trainYs } = shuffleParallel(split.trainX, split.trainY);
+
+    const valModel = buildModel();
+    const xT = tf.tensor2d(trainXs);
+    const yT = tf.tensor1d(trainYs);
+
+    statusEl.textContent = "Validation pass: training on train-sessions only...";
+    await valModel.fit(xT, yT, {
+      epochs: 50,
+      batchSize: 16,
+      shuffle: true,
+      callbacks: {
+        onEpochEnd: ep => { statusEl.textContent = `Validation pass — epoch ${ep + 1}/50`; }
+      }
+    });
+    xT.dispose();
+    yT.dispose();
+
+    metrics = computeMetrics(valModel, split.valX, split.valY);
+    valModel.dispose();
+    renderMetrics(metrics, split);
+  } else {
+    hideMetrics();
   }
 
-  const xT = tf.tensor2d(xs);
-  const yT = tf.tensor1d(ys);
+  // --- Phase 2: final "live" model, trained on ALL collected data ---
+  // (Held-out split above is only for an honest accuracy estimate; once
+  // we have that estimate, using every sample for the deployed model is
+  // standard practice and gives the on-page demo the best shot it can get.)
+  const allXs = [...samples.clone_sign.map(s => s.x), ...samples.not_sign.map(s => s.x)];
+  const allYs = [...samples.clone_sign.map(() => 1), ...samples.not_sign.map(() => 0)];
+  const { xs, ys } = shuffleParallel(allXs, allYs);
 
-  // ------- Using a NN ------ //
   if (model) model.dispose();
-  model = tf.sequential();
-  // Mess around with the NN model topology to try and get better performance. 
-  // Keep in mind bias-variance tradeoffs and over/under fitting
-  model.add(tf.layers.dense({ inputShape: [126], units: 64, activation: "relu" }));
-  model.add(tf.layers.dropout({ rate: 0.3 }));
-  model.add(tf.layers.dense({ units: 32, activation: "relu" }));
-  model.add(tf.layers.dense({ units: 1, activation: "sigmoid" }));
-  model.compile({ optimizer: "adam", loss: "binaryCrossentropy", metrics: ["accuracy"] });
+  model = buildModel();
 
-  // ------- Using LR, TF equivalent ------ //
-  // if (model) model.dispose();
-  // model = tf.sequential();
-  // model.add(tf.layers.dense({ inputShape: [126], units: 1, activation: "sigmoid" }));
-  // model.compile({ optimizer: "adam", loss: "binaryCrossentropy", metrics: ["accuracy"] });
+  const xT2 = tf.tensor2d(xs);
+  const yT2 = tf.tensor1d(ys);
 
-  document.getElementById("btn-train").disabled = true;
-  statusEl.textContent = "Training...";
-
-  await model.fit(xT, yT, {
+  statusEl.textContent = canValidate ? "Validated. Training final model on all data..." : "Training...";
+  await model.fit(xT2, yT2, {
     epochs: 50,
     batchSize: 16,
     shuffle: true,
     callbacks: {
       onEpochEnd: (ep, logs) => {
-        statusEl.textContent = `Epoch ${ep + 1}/50 — acc: ${((logs.accuracy || 0) * 100).toFixed(1)}%`;
+        statusEl.textContent = `Final model — epoch ${ep + 1}/50 — train acc: ${((logs.accuracy || 0) * 100).toFixed(1)}%`;
       }
     }
   });
+  xT2.dispose();
+  yT2.dispose();
 
-  xT.dispose();
-  yT.dispose();
-  document.getElementById("btn-train").disabled = false;
-  statusEl.textContent = `Done! ${nP + nN} samples. Model is live — test your sign above.`;
+  trainBtn.disabled = false;
+
+  if (canValidate) {
+    statusEl.textContent = `Done! Held-out validation accuracy: ${(metrics.accuracy * 100).toFixed(1)}% ` +
+      `(${metrics.n} val frames, ${split.pos.numValSessions + split.neg.numValSessions} sessions). ` +
+      `Live model retrained on all ${nP + nN} samples — test your sign above.`;
+  } else {
+    statusEl.textContent = `Done! ${nP + nN} samples. Model is live — test your sign above. ` +
+      `(Record ${MIN_SESSIONS_PER_CLASS}+ separate sessions per gesture to unlock validation accuracy — currently ${sessionsP}/${sessionsN}.)`;
+  }
 });
 
 // confidence bar
@@ -251,9 +439,15 @@ function updateConf(prob) {
   document.getElementById("conf-label").textContent = `${(prob * 100).toFixed(0)}%`;
 }
 
-// export/import data options
+// Export / import
+
 document.getElementById("btn-export-data").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(samples)], { type: "application/json" });
+  const payload = {
+    formatVersion: 2,
+    exportedAt: new Date().toISOString(),
+    samples
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "gesture-data.json";
@@ -264,14 +458,36 @@ document.getElementById("btn-import-data").addEventListener("click", () => {
   document.getElementById("import-data-input").click();
 });
 
+// Accepts both the new session-aware export (formatVersion 2) and old flat
+// exports (plain 126-number arrays, no session info). Legacy frames are
+// grouped into one conservative "legacy" session per class per import, so
+// they can never be split across train/val — safe, if not ideal.
+function normalizeImportPayload(raw) {
+  const isV2 = raw && raw.formatVersion === 2 && raw.samples;
+  const src = isV2 ? raw.samples : raw;
+  const importTag = `legacy-import_${Date.now()}`;
+
+  const out = { clone_sign: [], not_sign: [] };
+  ["clone_sign", "not_sign"].forEach(key => {
+    (src[key] || []).forEach(entry => {
+      if (Array.isArray(entry)) {
+        out[key].push({ x: entry, session: `${importTag}_${key}` });
+      } else if (entry && entry.x) {
+        out[key].push(entry);
+      }
+    });
+  });
+  return out;
+}
+
 document.getElementById("import-data-input").addEventListener("change", e => {
   const reader = new FileReader();
   reader.onload = ev => {
-    const data = JSON.parse(ev.target.result);
-    samples.clone_sign.push(...(data.clone_sign || []));
-    samples.not_sign.push(...(data.not_sign || []));
-    document.getElementById("count-clone").textContent = samples.clone_sign.length;
-    document.getElementById("count-other").textContent = samples.not_sign.length;
+    const raw = JSON.parse(ev.target.result);
+    const normalized = normalizeImportPayload(raw);
+    samples.clone_sign.push(...normalized.clone_sign);
+    samples.not_sign.push(...normalized.not_sign);
+    updateCounts();
     statusEl.textContent = "Data imported.";
   };
   reader.readAsText(e.target.files[0]);
@@ -289,7 +505,9 @@ document.getElementById("btn-save-model").addEventListener("click", async () => 
 
 document.getElementById("btn-clear-data").addEventListener("click", () => {
   samples = { clone_sign: [], not_sign: [] };
-  document.getElementById("count-clone").textContent = "0";
-  document.getElementById("count-other").textContent = "0";
+  updateCounts();
+  hideMetrics();
   statusEl.textContent = "Data cleared.";
 });
+
+updateCounts();
